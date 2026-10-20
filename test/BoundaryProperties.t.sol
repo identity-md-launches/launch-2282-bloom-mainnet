@@ -129,9 +129,26 @@ contract BoundaryPropertiesTest is FarmFixture {
         _fund(2000);
         _epoch(1000, 1);
         uint256 mask = bound(uint256(maskSeed), 1, 7);
+        if (mask & 3 == 2) {
+            // EMISSION may only go with or after FUND: otherwise funding could strand tokens unscheduled.
+            bytes32 early = farm.renouncementHash(mask);
+            vm.prank(owner);
+            vm.expectRevert(BloomFarm.RenouncementOrder.selector);
+            farm.renounceRoles(mask, early);
+            assertEq(farm.activeRoles(), 7, "a rejected renouncement removes nothing");
+            bytes32 fundFirst = farm.renouncementHash(1);
+            vm.prank(owner);
+            farm.renounceRoles(1, fundFirst);
+            mask |= 1;
+            bytes32 rest = farm.renouncementHash(mask ^ 1);
+            vm.prank(owner);
+            farm.renounceRoles(mask ^ 1, rest);
+        } else {
+            bytes32 confirmation0 = farm.renouncementHash(mask);
+            vm.prank(owner);
+            farm.renounceRoles(mask, confirmation0);
+        }
         bytes32 confirmation = farm.renouncementHash(mask);
-        vm.prank(owner);
-        farm.renounceRoles(mask, confirmation);
         assertEq(farm.activeRoles(), 7 ^ mask);
         vm.prank(owner);
         vm.expectRevert(SelectiveRoles.InvalidRenouncement.selector);

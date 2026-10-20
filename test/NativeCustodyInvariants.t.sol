@@ -6,6 +6,7 @@ import {FarmFixture} from "./helpers/FarmFixture.sol";
 import {MockToken, MockWETH, RejectETH, GasHungryReceiver, ReentrantReceiver} from "./helpers/Mocks.sol";
 import {BloomFarm} from "src/BloomFarm.sol";
 import {Treasury} from "src/Treasury.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /// @dev Ghost accounting uses actual inputs and recipient balance changes, not farm previews.
 /// All WETH in this harness is created by depositing ETH, including donations.
@@ -64,21 +65,20 @@ contract NativeCustodyHandler is Test {
             farm.depositETH{value: amount}(1);
             return;
         }
-        // A high share price can make a tiny deposit unrepresentable. Exercise its rejection.
-        if (beforeShares != 0 && amount * beforeShares < beforeAssets) {
+        // Independent model of the virtual-offset price: floor(amount * (S + vS) / (A + vA)).
+        uint256 vS = farm.virtualShares();
+        uint256 vA = farm.virtualAssets();
+        uint256 expected = Math.mulDiv(amount, beforeShares + vS, beforeAssets + vA);
+        if (expected == 0) {
             vm.prank(user);
             vm.expectRevert(BloomFarm.ZeroShares.selector);
             farm.depositETH{value: amount}(1);
             return;
         }
         vm.prank(user);
-        uint256 minted = farm.depositETH{value: amount}(1);
-        if (beforeShares == 0) {
-            assertEq(minted, amount);
-        } else {
-            assertLe(minted * beforeAssets, amount * beforeShares, "deposit must round down");
-            assertGt((minted + 1) * beforeAssets, amount * beforeShares, "at most one share of dust");
-        }
+        uint256 minted = farm.depositETH{value: amount}(expected);
+        assertEq(minted, expected, "deposit mints exactly the rounded-down virtual-price quote");
+        if (beforeShares == 0) assertEq(minted, amount, "empty-farm price is one share per wei");
         assertEq(farm.accountedAssets(), beforeAssets + amount);
         modelShares[i] += minted;
         deposited += amount;
@@ -93,9 +93,20 @@ contract NativeCustodyHandler is Test {
         address recipient = actors[recipientSeed % actors.length];
         uint256 supply = farm.totalShares();
         uint256 assets = farm.accountedAssets();
-        uint256 gross = shares * assets / supply;
+        uint256 gross = Math.mulDiv(shares, assets + farm.virtualAssets(), supply + farm.virtualShares());
         uint256 expectedNet = gross * 85 / 100;
-        uint256 expectedTreasury = shares == supply ? gross - expectedNet : (gross + 99) / 100;
+        // The last exit pays the Treasury everything the user does not receive; otherwise 1% rounded up.
+        uint256 expectedTreasury = shares == supply ? assets - expectedNet : (gross + 99) / 100;
+        if (gross == 0 && shares != modelShares[i]) {
+            vm.prank(actors[i]);
+            vm.expectRevert(BloomFarm.ZeroAssets.selector);
+            farm.withdraw(shares, 0, payable(recipient), asWETH);
+            return;
+        }
+        assertLe(expectedNet + expectedTreasury, assets, "an exit never pays out more than the pool holds");
+        // Price per share (A + vA) / (S + vS) must never fall across an exit.
+        uint256 priceNum = assets + farm.virtualAssets();
+        uint256 priceDen = supply + farm.virtualShares();
         uint256 beforeNative = recipient.balance;
         uint256 beforeWrapped = weth.balanceOf(recipient);
         uint256 beforeTreasury = address(treasury).balance;
@@ -118,6 +129,13 @@ contract NativeCustodyHandler is Test {
             assertEq(wrappedPaid, 0);
         }
         modelShares[i] -= shares;
+        if (farm.totalShares() != 0) {
+            assertGe(
+                (farm.accountedAssets() + farm.virtualAssets()) * priceDen,
+                priceNum * (farm.totalShares() + farm.virtualShares()),
+                "exits never lower the price of a remaining share"
+            );
+        }
         paidUsers += nativePaid + wrappedPaid;
         feeReceipts += address(treasury).balance - beforeTreasury;
         ++successfulWithdrawals;
