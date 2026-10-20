@@ -1,0 +1,19 @@
+{
+  "kind": "evm_contracts",
+  "contracts": [
+    {
+      "contract": "Treasury",
+      "constructorArgs": [
+        "$owner"
+      ]
+    },
+    {
+      "contract": "FarmFactory",
+      "constructorArgs": [
+        "$owner",
+        "$contract:Treasury"
+      ]
+    }
+  ],
+  "notes": "Initial Ethereum Mainnet infrastructure consists of Treasury and FarmFactory, both owned by the authenticated requester through $owner. FarmFactory references the deployed Treasury. Constructors require no ETH or initialization calls and leave token registrations unset with no farms, deposits or emissions active. The owner can later register verified real BLOOM, official sIMD and WETH9 addresses with verification evidence, whitelist the assets and create independent farms without redeploying this infrastructure. Each new farm starts with deposits paused and no emissions; reward funding alone does not start emissions. Factory configuration and creation roles support irreversible selective renouncement after essential setup; Treasury ownership is permanent. No token or liquidity pool is created. This manifest is deployment input, not evidence of confirmed Mainnet addresses or explorer verification."
+}
