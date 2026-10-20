@@ -82,14 +82,25 @@ chain and address, then submit `renounceRoles(mask, confirmation)`.
 | Factory | 1 | Register/whitelist tokens | All three kinds registered and whitelisted |
 | Factory | 2 | Create any more farms | At least one farm created |
 | Farm | 1 | Accept further owner reward funding | Deposits activated once and an epoch scheduled once |
-| Farm | 2 | Set/continue/restart/boost epochs | Deposits activated once and an epoch scheduled once |
+| Farm | 2 | Set/continue/restart/boost epochs | As for bit 1, and bit 1 renounced in the same call or earlier |
 | Farm | 4 | Pause or reopen deposits | Deposits activated and currently open |
 
 Combine bits to give up several powers. A confirmation for another contract, role set or chain
 will fail. Already-renounced bits cannot be renounced again or regranted. Finalizing CREATE before
-all intended farms exist is irreversible; finalizing EMISSION eventually leaves no new scheduled
-rewards. Finalizing FUND leaves only existing reserves to use. Finalizing DEPOSIT removes the
-ability to pause new deposits in an incident.
+all intended farms exist is irreversible; finalizing EMISSION leaves no new scheduled rewards.
+Finalizing FUND leaves only existing reserves to use. Finalizing DEPOSIT removes the ability to
+pause new deposits in an incident.
+
+Renouncing EMISSION alone while FUND is still active reverts with `RenouncementOrder`: use mask 3
+(FUND and EMISSION together) or renounce FUND first. Once EMISSION is gone, whatever sits in
+`rewardReserve`, including emissions that vest while nobody is staked, can never reach users; anyone
+may call `recoverStrandedReserve()` to send it to the Treasury (`StrandedReserveRecovered`). The
+current epoch keeps vesting to stakers and earned claims are unaffected. Call `checkpoint()` first if
+you want to see the exact recoverable amount in `rewardReserve`.
+
+While deposits are paused, only existing shareholders receive the 14% retained by exits made during
+the pause. If the owner wallet itself holds shares, the owner thereby chooses who competes for that
+retention. Keep the owner's own staking and its pause decisions separate and auditable.
 
 No renouncement transfers ownership. No other wallet can recover the capabilities. Losing the
 requester key also loses all remaining owner capabilities, including Treasury control.

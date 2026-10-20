@@ -60,13 +60,21 @@ contract FarmHandler is Test {
 
     function _withdraw(address user, uint256 shares) private {
         (uint256 gross, uint256 net, uint256 keep, uint256 fee) = farm.previewWithdraw(shares);
-        assertEq(net, Math.mulDiv(gross, 85, 100));
-        assertEq(gross, net + keep + fee);
+        bool last = shares == farm.totalShares();
         uint256 oldAssets = farm.accountedAssets();
+        assertEq(net, Math.mulDiv(gross, 85, 100));
+        if (last) {
+            // The final exit empties the pool: the Treasury receives the full fee plus any residual dust.
+            assertEq(keep, 0);
+            assertEq(net + fee, oldAssets);
+            assertGe(fee, gross - net);
+        } else {
+            assertEq(gross, net + keep + fee);
+        }
         vm.prank(user);
         assertEq(farm.withdraw(shares, net, payable(user), false), net);
-        assertEq(farm.accountedAssets(), oldAssets - gross + keep);
-        grossWithdrawn += gross;
+        assertEq(farm.accountedAssets(), last ? 0 : oldAssets - gross + keep);
+        grossWithdrawn += last ? oldAssets : gross;
         retained += keep;
         paid += net;
         treasuryPaid += fee;

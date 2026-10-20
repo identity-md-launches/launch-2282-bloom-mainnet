@@ -33,6 +33,10 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     uint8 public constant decimals = 18;
     uint256 public constant WITHDRAWAL_FEE_BPS = 1500;
     uint256 public constant TREASURY_FEE_BPS = 100;
+    /// @notice Virtual offset (ERC-4626 style) bounding share-price inflation through retained fees.
+    /// @dev One real share can never carry more than about 1/VIRTUAL_OFFSET of the pool, so the
+    /// rounding loss of a later depositor and the smallest mintable deposit stay negligible.
+    uint256 public constant VIRTUAL_OFFSET = 1e6;
 
     IERC20 public immutable asset;
     IERC20 public immutable rewardToken;
@@ -40,6 +44,9 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     Kind public immutable kind;
     uint8 public immutable assetDecimals;
     uint256 public immutable initialShareScale;
+    /// @notice Virtual assets and shares used in every price computation; their ratio is the initial scale.
+    uint256 public immutable virtualAssets;
+    uint256 public immutable virtualShares;
 
     bool public depositsPaused = true;
     bool public hasActivated;
@@ -55,6 +62,8 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     uint256 public totalAccrued;
     uint256 public totalFunded;
     uint256 public totalClaimed;
+    /// @notice Reserve sent to the Treasury after EMISSION_ROLE was renounced; never scheduled or earned rewards.
+    uint256 public totalRecovered;
     uint256 public rewardIndex;
     uint256 public indexRemainder;
     mapping(address => uint256) public paidIndex;
@@ -84,6 +93,8 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     error InsufficientReserve();
     error UnexpectedETH();
     error NoSurplus();
+    error RenouncementOrder();
+    error RoleStillActive();
 
     event Deposited(address indexed account, uint256 assets, uint256 shares);
     event Withdrawn(
@@ -103,6 +114,8 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     );
     event RewardsCheckpointed(uint256 emitted, uint256 index, bool empty);
     event EmptyRewardDustRecycled(uint256 amount);
+    event EmptyPoolResidualToTreasury(uint256 amount);
+    event StrandedReserveRecovered(uint256 amount);
     event SurplusSwept(address indexed token, uint256 amount);
     event WETHFallback(address indexed recipient, uint256 amount);
 
@@ -123,7 +136,12 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
         asset = IERC20(asset_);
         rewardToken = IERC20(rewardToken_);
         assetDecimals = assetDecimals_;
-        initialShareScale = 10 ** (18 - assetDecimals_);
+        uint256 scale = 10 ** (18 - assetDecimals_);
+        initialShareScale = scale;
+        // Both offsets are powers of ten, so the division is exact and virtualShares / virtualAssets == scale.
+        uint256 virtualAssets_ = scale >= VIRTUAL_OFFSET ? 1 : VIRTUAL_OFFSET / scale;
+        virtualAssets = virtualAssets_;
+        virtualShares = virtualAssets_ * scale;
         kind = kind_;
     }
 
@@ -137,24 +155,30 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
         return "stakedBLOOM";
     }
 
+    /// @dev Shares are priced against virtual offsets, so neither donations nor retained fees can
+    /// make one real share worth a material amount. Rounding always favours the pool.
     function previewDeposit(uint256 assets) public view returns (uint256) {
-        if (totalShares == 0) return Math.mulDiv(assets, initialShareScale, 1);
-        return Math.mulDiv(assets, totalShares, accountedAssets);
+        return Math.mulDiv(assets, totalShares + virtualShares, accountedAssets + virtualAssets);
     }
 
+    /// @notice When `shares` is the entire supply, `treasuryFee` is the whole 15% plus the residual
+    /// dust the virtual shares absorbed; the pool is left exactly empty.
     function previewWithdraw(uint256 shares)
         public
         view
         returns (uint256 gross, uint256 net, uint256 retainedFee, uint256 treasuryFee)
     {
         if (shares == 0 || shares > totalShares) return (0, 0, 0, 0);
-        gross = Math.mulDiv(shares, accountedAssets, totalShares);
+        gross = Math.mulDiv(shares, accountedAssets + virtualAssets, totalShares + virtualShares);
         // User payout rounds DOWN; total fee and Treasury's minimum 1% round UP.
         uint256 fee = Math.mulDiv(gross, WITHDRAWAL_FEE_BPS, 10_000, Math.Rounding.Ceil);
         net = gross - fee;
-        treasuryFee =
-            shares == totalShares ? fee : Math.mulDiv(gross, TREASURY_FEE_BPS, 10_000, Math.Rounding.Ceil);
-        retainedFee = fee - treasuryFee;
+        if (shares == totalShares) {
+            treasuryFee = accountedAssets - net;
+        } else {
+            treasuryFee = Math.mulDiv(gross, TREASURY_FEE_BPS, 10_000, Math.Rounding.Ceil);
+            retainedFee = fee - treasuryFee;
+        }
     }
 
     function deposit(uint256 assets, uint256 minSharesOut) external nonReentrant returns (uint256 shares) {
@@ -186,6 +210,12 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
         if (assets > MAX_BALANCE - accountedAssets || shares > MAX_BALANCE - totalShares) {
             revert BalanceLimit();
         }
+        // Never accept funds for a position that could not be redeemed for at least one asset unit.
+        if (
+            Math.mulDiv(
+                    shares, accountedAssets + assets + virtualAssets, totalShares + shares + virtualShares
+                ) == 0
+        ) revert ZeroAssets();
         accountedAssets += assets;
         totalShares += shares;
         sharesOf[msg.sender] += shares;
@@ -205,13 +235,22 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
         _assertSolvent();
         _checkpoint(msg.sender);
         (uint256 gross, uint256 payout, uint256 retained, uint256 treasuryFee) = previewWithdraw(shares);
-        if (gross == 0) revert ZeroAssets();
+        // A sub-unit position may only be closed whole; its remainder stays with the pool.
+        if (gross == 0 && shares != sharesOf[msg.sender]) revert ZeroAssets();
         if (payout < minAssetsOut) revert Slippage();
         net = payout;
         // Burn first, then redistribute the retained 14% to the remaining shares.
         sharesOf[msg.sender] -= shares;
         totalShares -= shares;
-        accountedAssets = accountedAssets - gross + retained;
+        if (totalShares == 0) {
+            // The last exit pays the Treasury everything the user does not receive, so no principal,
+            // fee or rounding dust is carried over to future depositors.
+            uint256 residual = accountedAssets - gross;
+            accountedAssets = 0;
+            if (residual != 0) emit EmptyPoolResidualToTreasury(residual);
+        } else {
+            accountedAssets = accountedAssets - gross + retained;
+        }
         indexRemainder = 0;
         if (sharesOf[msg.sender] == 0) rewardFraction[msg.sender] = 0;
         if (totalShares == 0) _recycleEmptyRewardDust();
@@ -222,9 +261,10 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     }
 
     /// @notice Rewards are immediately claimable, including after all shares have been withdrawn.
+    /// @dev Only reward-side solvency is required: a shortfall of an unrelated underlying never blocks claims.
     function claim(address recipient) external nonReentrant returns (uint256 amount) {
         _checkRecipient(recipient);
-        _assertSolvent();
+        _assertRewardSolvent();
         _checkpoint(msg.sender);
         amount = accruedRewards[msg.sender];
         if (amount != 0) {
@@ -234,7 +274,7 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
             totalClaimed += amount;
             _sendExact(rewardToken, recipient, amount);
         }
-        _assertSolvent();
+        _assertRewardSolvent();
         emit Claimed(msg.sender, recipient, amount);
     }
 
@@ -388,6 +428,21 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
         emit EmptyRewardDustRecycled(dust);
     }
 
+    /// @notice Once EMISSION_ROLE is irreversibly gone, reserve can never reach stakers; anyone may
+    /// send it to the Treasury. Scheduled and earned rewards are untouched.
+    function recoverStrandedReserve() external nonReentrant returns (uint256 amount) {
+        if (activeRoles & EMISSION_ROLE != 0) revert RoleStillActive();
+        _assertRewardSolvent();
+        _updateGlobal();
+        amount = rewardReserve;
+        if (amount == 0) revert NoSurplus();
+        rewardReserve = 0;
+        totalRecovered += amount;
+        _sendExact(rewardToken, treasury, amount);
+        _assertRewardSolvent();
+        emit StrandedReserveRecovered(amount);
+    }
+
     /// @notice Donations are never shares or rewards. Anyone may send only excess to the Treasury.
     function sweepSurplus(IERC20 token) external nonReentrant returns (uint256 amount) {
         _assertSolvent();
@@ -416,14 +471,14 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     }
 
     function _assertSolvent() private view {
-        uint256 rewards = rewardBacking();
-        if (asset == rewardToken) {
-            if (asset.balanceOf(address(this)) < accountedAssets + rewards) revert Insolvent();
-        } else if (
-            asset.balanceOf(address(this)) < accountedAssets || rewardToken.balanceOf(address(this)) < rewards
-        ) {
-            revert Insolvent();
-        }
+        _assertRewardSolvent();
+        if (asset != rewardToken && asset.balanceOf(address(this)) < accountedAssets) revert Insolvent();
+    }
+
+    function _assertRewardSolvent() private view {
+        uint256 required = rewardBacking();
+        if (asset == rewardToken) required += accountedAssets;
+        if (rewardToken.balanceOf(address(this)) < required) revert Insolvent();
     }
 
     function _payUnderlying(address payable recipient, uint256 amount, bool asWETH) private {
@@ -474,6 +529,10 @@ contract BloomFarm is SelectiveRoles, ReentrancyGuard {
     function _checkRenouncement(uint256 roles) internal view override {
         if (!hasActivated) revert EssentialSetupIncomplete();
         if (roles & (FUND_ROLE | EMISSION_ROLE) != 0 && !hasScheduled) revert EssentialSetupIncomplete();
+        // Funding without the power to schedule only locks tokens: FUND_ROLE goes with or before EMISSION_ROLE.
+        if (roles & EMISSION_ROLE != 0 && (activeRoles & ~roles) & FUND_ROLE != 0) {
+            revert RenouncementOrder();
+        }
         if (roles & DEPOSIT_ROLE != 0 && depositsPaused) revert EssentialSetupIncomplete();
     }
 }

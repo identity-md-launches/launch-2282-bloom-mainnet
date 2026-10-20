@@ -68,7 +68,7 @@ abstract contract FarmFixture is Test {
 
     function _assertAccounting() internal view {
         farm.assertSolvent();
-        assertEq(farm.rewardBacking() + farm.totalClaimed(), farm.totalFunded());
+        assertEq(farm.rewardBacking() + farm.totalClaimed() + farm.totalRecovered(), farm.totalFunded());
         assertLe(farm.totalAccrued(), farm.rewardLiability());
         assertEq(
             farm.asset().balanceOf(address(farm)),

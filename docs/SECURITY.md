@@ -42,8 +42,42 @@ partial-withdrawer benefit.
 Withdrawal net rounds down; total fee and Treasury's 1% round up. Tiny repeated withdrawals cannot
 avoid fees, but can pay a much higher effective percentage. A one-base-unit exit pays all of it as
 fee. Share issuance rounds down by less than one internal share; the user controls minimum output.
-Explicit minSharesOut and zero-share rejection are especially important if redistribution raises
-the value of one share.
+Because of the virtual offset described in E4, one share is worth at most about one millionth of
+the pool, so the entry rounding loss is bounded by that amount whatever the farm's history.
+
+### E4 — Share-price inflation through retained fees (reported by independent review; fixed)
+
+**Impact before the fix: high.** Donation protection only covered raw token transfers. The 14%
+retained by every exit was credited to `accountedAssets` whatever the number of surviving shares,
+and an 18-decimal farm minted exactly one share for a 1 wei first deposit. A first depositor could
+therefore hold one share, route any amount `X` through a second wallet, and leave one share backed
+by `0.14 X`, paying only the 1% Treasury part. Every deposit below that price then reverted with
+`ZeroShares` forever, and every larger deposit lost up to one share price to the attacker.
+
+Fix: every share price computation now uses an ERC-4626-style virtual offset of `1e6` shares and
+`1e6` wei for an 18-decimal asset (`virtualShares / virtualAssets == 10^(18 - decimals)` so the
+empty-farm price is unchanged). One real share can hold at most `1 / (1e6 + 1)` of the pool; the
+rest of any retention lands on the virtual shares, which belong to nobody and are paid to the
+Treasury when the last real share exits. Driving the share price to `P` now costs about
+`1e6 * P / 0.14` routed through the farm with 15% lost per round trip, for a bounded loss of at most
+`P` per later deposit and a `ZeroShares` floor of `P`. The price of one share is never below
+`1 / scale` underlying units, so an 18-decimal position is always redeemable; a sub-unit position
+in a lower-decimal asset is refused at deposit time and can otherwise be closed whole.
+Reproductions: `testRetentionCannotInflateSharePriceAgainstLaterDepositors`,
+`testZeroSharesOnlyBelowTheVirtuallyBoundedSharePrice`, `testDepositSlippageZeroSharesAndRoundingDust`
+and `testLowDecimalDustDepositIsRejectedOrClosableWhole`.
+
+Cost of the fix: a whole-pool exit after retention deviates from the exact Model B figure by the
+virtual shares' pro-rata part of the retention, about `1e6 / totalShares` of it (below `1e6` wei on
+a 100-token position). Conservation stays exact; that dust reaches the Treasury, never a user.
+
+### E5 — A 1 wei squatter share and the final 15% rule (reported; fixed by E4)
+
+A permanently held 1 wei share meant that no other holder's exit was ever the "last", so a sole real
+depositor's full exit paid 1% to the Treasury and 14% to the squatter. With the virtual offset the
+squatter's share receives about one millionth of that retention; the rest is paid to the Treasury as
+residual when the squatter finally exits (`testSquatterShareCannotCaptureTheFinalFifteenPercent`).
+A squatter with a material position is an ordinary remaining shareholder under Model B (E1).
 
 Rewards preserve account fractions across claims and global index fractions while shares are
 unchanged. A full exit gives up less than one BLOOM base unit of fractional entitlement. A share
@@ -66,10 +100,23 @@ maximum allowed share supply). It does not become principal or owner-withdrawabl
   Positive unsolicited balance changes are excess rather than share yield. Do not register a
   rebasing official sIMD without a separate reviewed design change.
 - Owner emission control can slow or restart **unvested** rewards for up to 3,650 days per restart,
-  repeatedly while retained. Earned claims are protected. Funding is not recoverable by the owner;
-  finalizing the emission role can leave reserves permanently unused.
+  repeatedly while retained. Earned claims are protected. While EMISSION is active, funding is not
+  recoverable by anyone. EMISSION can only be renounced with or after FUND (`RenouncementOrder`), so
+  no token can be funded into a farm that can no longer schedule it; after that renouncement the
+  unallocated reserve, including emissions that vest while nobody is staked, is recoverable to the
+  Treasury by anyone (`recoverStrandedReserve`). This is an explicit, event-logged, one-way path
+  that the owner can use to end a farm's rewards and reclaim the unscheduled part; scheduled and
+  earned rewards are never affected (`testFundRoleMayGoFirstAndStrandedReserveIsRecoverableOnlyAfterEmissionRenouncement`).
 - Owner deposit control can block new deposits, never withdrawals/claims. Renouncing it removes
   incident response for new deposits. Factory whitelist changes gate new farm creation only.
+- Trust assumption on the pause: while deposits are paused, only existing shareholders receive the
+  14% retained by exits, and the owner alone decides when deposits reopen. An owner wallet that
+  also holds shares can therefore keep competing snipers out during large exits and collect that
+  retention itself (`testPauseHolderCapturesRetentionOfExitsMadeWhilePaused`). This is the
+  requested pause power combined with Model B, not a bypass; it ends when DEPOSIT is renounced.
+- Claims check only the reward side of solvency: a shortfall of the unrelated underlying asset (a
+  slashing or negatively rebasing sIMD, which is outside the supported token set) blocks withdrawals
+  but not BLOOM claims (`testClaimsSurviveAnUnderlyingShortfallWhileWithdrawalsRejectIt`).
 - Ownership is immutable. Lost-key recovery and ownership transfer do not exist; a compromised
   owner retains any unrenounced configuration/emission/pause rights and Treasury spending rights.
 - Treasury can spend its actual received fees/donations. It has no farm role, token approval,
@@ -127,4 +174,6 @@ exit. They cannot exhaust every transaction sequence, token implementation or ME
 
 No unresolved implementation exploit was found in the recorded checks. That statement is limited
 to the tests and review described here; E1/E2 are demonstrated material economic risks retained
-because the brief explicitly requires their underlying rules.
+because the brief explicitly requires their underlying rules. E4 and E5 were found by an
+independent reviewer after the first acceptance and are fixed in this revision; the reviewer's
+proof test passes against the current code.

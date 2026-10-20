@@ -145,6 +145,19 @@
   },
   {
     "type": "function",
+    "name": "VIRTUAL_OFFSET",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "WITHDRAWAL_FEE_BPS",
     "inputs": [],
     "outputs": [
@@ -604,6 +617,19 @@
   },
   {
     "type": "function",
+    "name": "recoverStrandedReserve",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "renounceRoles",
     "inputs": [
       {
@@ -871,6 +897,19 @@
   },
   {
     "type": "function",
+    "name": "totalRecovered",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "totalShares",
     "inputs": [],
     "outputs": [
@@ -891,6 +930,32 @@
         "name": "",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "virtualAssets",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "virtualShares",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -994,6 +1059,19 @@
   },
   {
     "type": "event",
+    "name": "EmptyPoolResidualToTreasury",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "EmptyRewardDustRecycled",
     "inputs": [
       {
@@ -1088,6 +1166,19 @@
         "name": "roles",
         "type": "uint256",
         "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "StrandedReserveRecovered",
+    "inputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
         "internalType": "uint256"
       }
     ],
@@ -1252,6 +1343,11 @@
   },
   {
     "type": "error",
+    "name": "RenouncementOrder",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "RoleDisabled",
     "inputs": [
       {
@@ -1260,6 +1356,11 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "RoleStillActive",
+    "inputs": []
   },
   {
     "type": "error",

@@ -60,28 +60,47 @@ conversion from IMD to sIMD.
 Internal `sharesOf(account)` balances have 18 decimals and symbols `stakedSIMD`, `stakedETH` or
 `stakedBLOOM`. They have no transfer, approval, permit or operator interface.
 
-For an empty farm, initial shares are `assets * 10^(18 - assetDecimals)`. For a populated farm,
-shares are `floor(assets * totalShares / accountedAssets)` using full-precision multiplication/division.
-This normalizes denomination; it says nothing about sIMD's exchange rate against IMD.
-Deposits cost 0%, require positive `minSharesOut`, reject zero shares and enforce the caller's
-minimum. Deposit rounding of less than one internal share benefits existing holders. Set a meaningful
-minimum from a current quote; a minimum of 1 only rejects total loss to rounding.
+Share prices use an ERC-4626-style virtual offset so that neither a donation nor the farm's own
+retained fees can make one real share worth a material amount:
+
+```text
+scale          = 10^(18 - assetDecimals)
+virtualAssets  = max(1, VIRTUAL_OFFSET / scale)        # VIRTUAL_OFFSET = 1e6
+virtualShares  = virtualAssets * scale                 # 1e6 shares for an 18-decimal asset
+
+shares = floor(assets * (totalShares + virtualShares) / (accountedAssets + virtualAssets))
+```
+
+For an empty farm this is exactly `assets * scale`, so a 1 wei first deposit mints 1 share.
+Full-precision multiplication/division is used throughout. This normalizes denomination; it says
+nothing about sIMD's exchange rate against IMD. Deposits cost 0%, require positive `minSharesOut`,
+reject zero shares, reject a position that could not be redeemed for at least one underlying unit,
+and enforce the caller's minimum. Deposit rounding of less than one internal share benefits the
+pool. Set a meaningful minimum from a current quote; a minimum of 1 only rejects total loss to rounding.
+
+Why the offset matters: without it, one surviving 1-wei share would absorb 14% of every later
+round trip through the farm, so a first depositor could set the price of a single share to any
+value, make small deposits revert and take up to one share price from every later depositor. With
+the offset, one share can hold at most about `1 / 1e6` of the pool, so inflating the share price to
+`P` costs the attacker roughly `1e6 * P / 0.14` routed through the farm with 15% lost on every
+round trip, for a bounded loss of at most `P` per victim deposit. The price of one share is always
+at least `1 / scale` underlying units, so an 18-decimal position is always redeemable.
 
 For withdrawal of `s` shares:
 
 ```text
-gross       = floor(s * accountedAssets / totalShares)
-totalFee    = ceil(gross * 15 / 100)
+gross        = floor(s * (accountedAssets + virtualAssets) / (totalShares + virtualShares))
+totalFee     = ceil(gross * 15 / 100)
 userReceives = gross - totalFee                   # floor(85% of gross)
 
 if shares remain after burning s:
     treasuryFee = ceil(gross * 1 / 100)
     retainedFee = totalFee - treasuryFee
+    newAccountedAssets = oldAccountedAssets - gross + retainedFee
 else:
-    treasuryFee = totalFee
+    treasuryFee = oldAccountedAssets - userReceives   # the full 15% plus residual dust
     retainedFee = 0
-
-newAccountedAssets = oldAccountedAssets - gross + retainedFee
+    newAccountedAssets = 0
 ```
 
 Fees use the **entire compounded position**. Shares are burned before retained fees increase the
@@ -91,6 +110,16 @@ Both fee ceilings prevent fee avoidance by splitting into tiny withdrawals. Roun
 less than one smallest underlying unit per rounded component; a one-unit exit pays the full unit
 as a fee. `minAssetsOut` lets the user reject an undesirable payout.
 
+The virtual shares take their pro-rata part of retained fees, `virtualShares / (totalShares +
+virtualShares)`, which is about `1e-12` of each exit's retention for a 1-token 18-decimal pool and
+negligible for any real pool. That residual belongs to no user: when the last real share exits it
+is paid to the Treasury together with the final fee (`EmptyPoolResidualToTreasury`), so an emptied
+farm always has `accountedAssets == 0` and nothing carries over to future depositors.
+
+A holder whose whole remaining position is worth less than one underlying unit (possible only for
+assets with fewer than 18 decimals) can still close it whole; the sub-unit remainder stays with the
+pool. A partial withdrawal that would pay zero reverts.
+
 A partial withdrawer participates in retained fees through their remaining shares. There is no
 eligibility delay. **Fee sniping and multi-wallet splitting remain economic risks of Model B.**
 For example, after Alice deposits 1,000 tokens and Bob deposits 10, Alice's full withdrawal leaves
@@ -99,7 +128,8 @@ No transfer or fee bypass is used. See [security findings](docs/SECURITY.md).
 
 Direct donations never change `accountedAssets`, share prices or reward funding. Only recorded
 deposits and retained exit fees change underlying backing. The final share withdrawal consumes all
-accounted assets, including principal rounding dust. Excess balances stay separate and anyone may
+accounted assets, including principal rounding dust and the virtual shares' residual, paying the
+user 85% of their gross and the Treasury the rest. Excess balances stay separate and anyone may
 send them to Treasury with `sweepSurplus`; they never subsidize future depositors.
 
 ## Rewards and epochs
@@ -118,8 +148,12 @@ The token backing is partitioned into:
 
 `rewardBacking() = rewardReserve + scheduledRewards() + rewardLiability`.
 For a BLOOM farm, the BLOOM balance must cover **accountedAssets + rewardBacking()**; for other farms
-each token separately covers its obligations. `totalFunded = totalClaimed + rewardBacking()`.
-No reserve, allocation or liability is administratively withdrawable.
+each token separately covers its obligations. `totalFunded = totalClaimed + totalRecovered +
+rewardBacking()`. No allocation or liability is ever administratively withdrawable. Unallocated
+reserve becomes recoverable to the Treasury by anyone (`recoverStrandedReserve`) only after
+EMISSION has been irreversibly renounced, because from then on nothing can schedule it to users.
+Claims check only reward-side solvency, so a shortfall of an unrelated underlying asset never
+blocks a BLOOM claim.
 
 `fundRewards(amount)` only adds reserve. It never starts emissions.
 `setEpoch(newlyAllocated, durationDays, mode)` allocates *additional* reserve; its amount argument is
@@ -190,9 +224,13 @@ There is no grant function, ownership transfer, role recovery, proxy or upgrade.
 
 Factory CONFIG renouncement requires all three tokens to be registered and whitelisted; CREATE
 renouncement requires at least one created farm. Farm renouncement requires prior activation;
-FUND/EMISSION require a previously scheduled epoch; DEPOSIT can only be renounced while deposits
-are open. Renouncing CREATE can intentionally prevent the creation of farm kinds not yet deployed.
-Review the full intended farm list first.
+FUND/EMISSION require a previously scheduled epoch; EMISSION can only be renounced together with
+FUND or after it (`RenouncementOrder`), because funding a farm that can no longer schedule only
+locks tokens; DEPOSIT can only be renounced while deposits are open. Renouncing CREATE can
+intentionally prevent the creation of farm kinds not yet deployed. Review the full intended farm
+list first. After EMISSION is gone, any reserve, including zero-staker emissions that return to it
+later, can be sent to the Treasury by anyone with `recoverStrandedReserve()`; scheduled and earned
+rewards are never touched.
 
 Treasury ownership cannot be renounced. Renouncing a farm's powers leaves withdrawals and claims
 available. Renouncing a factory power does not change existing farms' own roles. New farms are new,
@@ -201,9 +239,9 @@ rotate a lost or compromised key.** Treasury can pay a chosen beneficiary, but i
 at the authenticated wallet.
 
 Operational numeric choices: assets, total shares and lifetime funding are bounded at `2^128 - 1`
-base units per farm; reward index precision is `1e36`; maximum epoch duration is 3,650 days; native
-delivery gas is 50,000. These bounds, integer rounding and supported token semantics are part of
-the implementation.
+base units per farm; reward index precision is `1e36`; the share-price virtual offset is `1e6`;
+maximum epoch duration is 3,650 days; native delivery gas is 50,000. These bounds, integer rounding
+and supported token semantics are part of the implementation.
 
 [Client API and ABIs](docs/INTEGRATION.md) · [actual validation](docs/VALIDATION.md) ·
 [security findings and residual risks](docs/SECURITY.md)

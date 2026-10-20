@@ -78,6 +78,44 @@ contract AdminTest is FarmFixture {
         vm.stopPrank();
     }
 
+    function testClaimsSurviveAnUnderlyingShortfallWhileWithdrawalsRejectIt() public {
+        _deposit(alice, 100 ether);
+        _fund(1000 ether);
+        _epoch(1000 ether, 10);
+        vm.warp(block.timestamp + 5 days);
+        simd.burn(address(farm), 1);
+        vm.startPrank(alice);
+        assertEq(farm.claim(alice), 500 ether);
+        vm.expectRevert(BloomFarm.Insolvent.selector);
+        farm.withdraw(100 ether, 0, payable(alice), false);
+        vm.stopPrank();
+        assertEq(bloom.balanceOf(alice), 500 ether);
+        // A shortfall of the reward token itself still blocks claims.
+        bloom.burn(address(farm), 1);
+        vm.warp(farm.epochEnd());
+        vm.prank(alice);
+        vm.expectRevert(BloomFarm.Insolvent.selector);
+        farm.claim(alice);
+    }
+
+    function testPauseHolderCapturesRetentionOfExitsMadeWhilePaused() public {
+        // Documented trust assumption (SECURITY.md): the pauser decides who may still be staked when others exit.
+        _deposit(owner, 100 ether);
+        _deposit(alice, 10_000 ether);
+        vm.prank(owner);
+        farm.setDepositsPaused(true);
+        vm.prank(bob);
+        vm.expectRevert(BloomFarm.DepositsPaused.selector);
+        farm.deposit(1 ether, 1);
+        _withdraw(alice, 10_000 ether);
+        (uint256 ownerGross,,,) = farm.previewWithdraw(100 ether);
+        assertApproxEqAbs(ownerGross, 1500 ether, 1e10);
+        assertEq(simd.balanceOf(address(treasury)), 100 ether);
+        vm.prank(owner);
+        farm.setDepositsPaused(false);
+        _assertAccounting();
+    }
+
     function testPauseLeavesWithdrawalsAndClaimsAvailable() public {
         _deposit(alice, 100 ether);
         _fund(100 ether);
@@ -102,16 +140,23 @@ contract AdminTest is FarmFixture {
         _fund(100 ether);
         _epoch(100 ether, 1);
         uint256 emissionRole = farm.EMISSION_ROLE();
-        bytes32 confirmation = farm.renouncementHash(emissionRole);
-        vm.prank(owner);
-        farm.renounceRoles(emissionRole, confirmation);
-        assertEq(farm.activeRoles(), farm.FUND_ROLE() | farm.DEPOSIT_ROLE());
-        vm.prank(owner);
+        uint256 fundRole = farm.FUND_ROLE();
+        // Giving up emissions while funding stays possible would only lock tokens.
+        bytes32 emissionHash = farm.renouncementHash(emissionRole);
+        bytes32 bothHash = farm.renouncementHash(fundRole | emissionRole);
+        vm.startPrank(owner);
+        vm.expectRevert(BloomFarm.RenouncementOrder.selector);
+        farm.renounceRoles(emissionRole, emissionHash);
+        farm.renounceRoles(fundRole | emissionRole, bothHash);
+        vm.stopPrank();
+        assertEq(farm.activeRoles(), farm.DEPOSIT_ROLE());
+        vm.startPrank(owner);
         vm.expectRevert(abi.encodeWithSelector(SelectiveRoles.RoleDisabled.selector, emissionRole));
         farm.boost(1);
-        _fund(100 ether);
-        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(SelectiveRoles.RoleDisabled.selector, fundRole));
+        farm.fundRewards(1);
         farm.setDepositsPaused(true);
+        vm.stopPrank();
         vm.warp(farm.epochEnd());
         _withdraw(alice, farm.sharesOf(alice));
         vm.prank(alice);
@@ -120,6 +165,37 @@ contract AdminTest is FarmFixture {
         treasury.payToken(simd, owner, 15 ether);
         assertEq(simd.balanceOf(owner), 15 ether);
         _assertAccounting();
+    }
+
+    function testFundRoleMayGoFirstAndStrandedReserveIsRecoverableOnlyAfterEmissionRenouncement() public {
+        _fund(1000 ether);
+        _epoch(1000 ether, 10);
+        uint256 fundRole = farm.FUND_ROLE();
+        uint256 emissionRole = farm.EMISSION_ROLE();
+        bytes32 fundHash = farm.renouncementHash(fundRole);
+        bytes32 emissionHash = farm.renouncementHash(emissionRole);
+        vm.prank(owner);
+        farm.renounceRoles(fundRole, fundHash);
+        vm.expectRevert(BloomFarm.RoleStillActive.selector);
+        farm.recoverStrandedReserve();
+        vm.prank(owner);
+        farm.renounceRoles(emissionRole, emissionHash);
+        // Half the epoch vests with nobody staked, then alice earns the second half.
+        vm.warp(block.timestamp + 5 days);
+        _deposit(alice, 100 ether);
+        vm.warp(farm.epochEnd());
+        assertEq(farm.earned(alice), 500 ether);
+        assertEq(farm.recoverStrandedReserve(), 500 ether);
+        assertEq(bloom.balanceOf(address(treasury)), 500 ether);
+        assertEq(farm.rewardReserve(), 0);
+        assertEq(farm.totalRecovered(), 500 ether);
+        vm.expectRevert(BloomFarm.NoSurplus.selector);
+        farm.recoverStrandedReserve();
+        vm.prank(alice);
+        assertEq(farm.claim(alice), 500 ether);
+        _withdraw(alice, 100 ether);
+        _assertAccounting();
+        assertEq(bloom.balanceOf(address(farm)), 0);
     }
 
     function testRenouncingAllFarmRolesDoesNotDisableUsersOrReenableViaUnknownCalls() public {

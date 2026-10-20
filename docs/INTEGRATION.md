@@ -35,12 +35,18 @@ contracts have minimum outputs but no on-chain deadline parameter.
 
 Before withdrawal, read `sharesOf(account)` and `previewWithdraw(shares)`, which returns
 `(gross, net, retainedFee, treasuryFee)`. Display fees on gross, not initial deposit value.
-There is no lock or waiting period. A final exit sends the whole rounded 15% fee to Treasury.
-For native payouts, support either ETH or WETH as the actual received asset and watch `WETHFallback`.
+There is no lock or waiting period. When `shares == totalShares` (the last position in the farm),
+`retainedFee` is 0 and `treasuryFee` is everything the user does not receive: the whole rounded 15%
+plus the dust absorbed by the virtual shares, so `net + treasuryFee == accountedAssets`. A full
+position worth less than one underlying unit (sub-18-decimal assets only) returns all zeros and can
+still be closed with `withdraw(allShares, 0, ...)`. For native payouts, support either ETH or WETH as
+the actual received asset and watch `WETHFallback`.
 
 ## Read surfaces and indexer rules
 
-- `accountedAssets` and `totalShares` give the share price; do not use raw token balances.
+- The share price is `(accountedAssets + virtualAssets) / (totalShares + virtualShares)`; read the
+  two immutables once. Do not use raw token balances, and do not divide the two storage values alone
+  for tiny pools.
 - `earned(account)` previews currently claimable BLOOM, including elapsed time.
 - `rewardReserve`, `scheduledRewards()` and `rewardLiability` are stored accounting buckets.
   They may not yet reflect elapsed time until checkpointed; their sum remains all reward backing.
@@ -50,12 +56,15 @@ For native payouts, support either ETH or WETH as the actual received asset and 
 - Fractional emissions are represented by cumulative vesting, not a rounded integer rate. For a
   display rate, use the rational `epochBudget / (epochEnd - epochStart)` in token units per second.
 - Watch `Deposited`, `Withdrawn`, `Claimed`, `RewardsFunded`, `EpochSet`,
-  `DepositsPauseChanged`, `RolesRenounced`, `WETHFallback` and `SurplusSwept`.
+  `DepositsPauseChanged`, `RolesRenounced`, `WETHFallback`, `SurplusSwept`,
+  `EmptyPoolResidualToTreasury` and `StrandedReserveRecovered`.
+- `totalFunded == totalClaimed + totalRecovered + rewardBacking()` at all times.
 - Treat balances read inside a token/ETH callback as intermediate transaction state; wait for the
   confirmed receipt and reconcile state after the transaction.
 
 Important revert categories include `NotConfigured`, `NotWhitelisted`, `DepositsPaused`, `Slippage`,
-`ZeroShares`, `InsufficientShares`, `InexactTransfer`, `Insolvent`, `InsufficientReserve`,
-`NoActiveEpoch`, `InvalidDuration`, `Unauthorized` and `RoleDisabled`.
+`ZeroShares`, `ZeroAssets`, `InsufficientShares`, `InexactTransfer`, `Insolvent`,
+`InsufficientReserve`, `NoActiveEpoch`, `InvalidDuration`, `Unauthorized`, `RoleDisabled`,
+`RenouncementOrder` and `RoleStillActive`.
 
 No website, signer service, router, staking wrapper, reward token or liquidity pool is included.
