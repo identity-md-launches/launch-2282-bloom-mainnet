@@ -1,0 +1,161 @@
+No files changed, compilation skipped
+
+Ran 12 tests for test/Adversarial.t.sol:AdversarialTest
+[PASS] testDepositAndFundingCapsRejectWithoutOverflow() (gas: 764181)
+[PASS] testFalseReturnTokenRevertsSafely() (gas: 447518)
+[PASS] testFarmRejectsInvalidRecipientsAndConstructorValues() (gas: 368854)
+[PASS] testMaximumAccountingBoundsAndFullPrecision() (gas: 1192366)
+[PASS] testNegativeRebaseCannotSpendRewardBackingAsPrincipal() (gas: 3261543)
+[PASS] testReentrantTokenCannotDepositWithdrawClaimOrSweep() (gas: 1995032)
+[PASS] testRewardTokenCallbackCannotClaimTwice() (gas: 1262290)
+[PASS] testTaxedDepositRevertsWithoutIssuingShares() (gas: 380916)
+[PASS] testTaxedRewardFundingRevertsWithoutCreatingUnbackedReserve() (gas: 331291)
+[PASS] testTaxedWithdrawalRollsBackBurnAndTreasuryPayment() (gas: 502788)
+[PASS] testTokenWithNoReturnValueSupported() (gas: 797483)
+[PASS] testTreasuryNativeFailureAndRecipientValidation() (gas: 237914)
+Suite result: ok. 12 passed; 0 failed; 0 skipped; finished in 12.42ms (9.10ms CPU time)
+
+Ran 10 tests for test/NativeETH.t.sol:NativeETHTest
+[PASS] testExplicitWETHWithdrawalHasIdenticalFees() (gas: 463586)
+[PASS] testForcedETHDonationsAreNeverShareBacking() (gas: 476573)
+[PASS] testGasExhaustionDoesNotBlockWETHFallback() (gas: 632684)
+[PASS] testNativeDepositWrapsAndWithdrawalPaysETHAndTreasury() (gas: 463858)
+[PASS] testNativeRedistributionRemainsWrappedInSameFarm() (gas: 586962)
+[PASS] testReentrantETHRecipientCannotClaimOrWithdrawDuringPayout() (gas: 647048)
+[PASS] testRejectingRecipientAutomaticallyGetsWETH() (gas: 593421)
+[PASS] testRejectingTreasuryGetsWETHWithoutBlockingUser() (gas: 651642)
+[PASS] testReturnDataBombDoesNotBlockWETHFallback() (gas: 617425)
+[PASS] testWrongEntryPointsAndUnsolicitedETHRejected() (gas: 68854)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 12.43ms (6.99ms CPU time)
+
+Ran 14 tests for test/Admin.t.sol:AdminTest
+[PASS] testAllOwnerPermissionsRejectOtherWallets() (gas: 265965)
+[PASS] testFactoryRenouncementRequiresSetupAndCannotBeRecovered() (gas: 194644)
+[PASS] testFarmRenouncementRequiresActivationScheduleAndUnpausedFinalDeposits() (gas: 2771840)
+[PASS] testOwnershipAlwaysExplicitNotDeployer() (gas: 75677)
+[PASS] testPauseLeavesWithdrawalsAndClaimsAvailable() (gas: 1606513)
+[PASS] testRenouncementConfirmationCannotBeReplayedAcrossContractsOrRoles() (gas: 174391)
+[PASS] testRenouncingAllFarmRolesDoesNotDisableUsersOrReenableViaUnknownCalls() (gas: 1778339)
+[PASS] testSelectiveFarmRenouncementIsPermanentAndTreasuryUnaffected() (gas: 1648462)
+[PASS] testTokenConfigurationIsSingleUseAndRequiresEvidenceAndCode() (gas: 1114112)
+[PASS] testTreasuryCannotReachFarmPrincipalOrRewardLiabilities() (gas: 826142)
+[PASS] testUnavailableBloomDoesNotBlockInfrastructureDeployment() (gas: 2849905)
+[PASS] testUnconfiguredUnderlyingFailsAndIMDCannotBeWhitelisted() (gas: 1066536)
+[PASS] testWhitelistDoesNotRetroactivelyDisableExistingFarms() (gas: 520358)
+[PASS] testWrongTreasuryOwnerRejectedOnFirstUse() (gas: 45805)
+Suite result: ok. 14 passed; 0 failed; 0 skipped; finished in 13.24ms (9.78ms CPU time)
+
+Ran 4 tests for test/Deployment.t.sol:DeploymentTest
+[PASS] testConstructorsDoNotCallDependenciesOnEmptyChain() (gas: 5942196)
+[PASS] testInitCodeAndRuntimeFitMainnetLimits() (gas: 12316)
+[PASS] testScriptRehearsalUsesAuthenticatedRequesterAndLeavesTokensUnset() (gas: 16269144)
+[PASS] testScriptRejectsWrongChainAndWorkerOwnership() (gas: 4036865)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 56.20ms (55.51ms CPU time)
+
+Ran 16 tests for test/Rewards.t.sol:RewardsTest
+[PASS] testBloomFarmSeparatesPrincipalRewardsAndDonations() (gas: 3998198)
+[PASS] testContinueAndBoostPreserveFinishAndAccruedClaims() (gas: 1074960)
+[PASS] testDurationModeAndReserveFailures() (gas: 893871)
+[PASS] testEmptyPoolRecyclesOnlyDustAndPreservesOldClaims() (gas: 2106106)
+[PASS] testFundingNeverStartsEmissions() (gas: 700205)
+[PASS] testFuzzEpochReconfigurationConservesFundedRewards(uint128,uint32,uint16,bool) (runs: 512, μ: 1192984, ~: 1186852)
+[PASS] testGlobalRemainderPreventsCheckpointFrequencyGrief() (gas: 6560512)
+[PASS] testNewAllocationCannotReuseLiabilities() (gas: 1163228)
+[PASS] testOneThousandUsersCanExitAndClaimWithoutLeakingRewards() (gas: 548871712)
+[PASS] testPerAccountFractionsSurviveFrequentClaims() (gas: 1888882)
+[PASS] testRestartOnlyReschedulesUnvestedPlusNewAllocation() (gas: 1202226)
+[PASS] testRewardsAccrueOnlyDuringOwnStakeAndClaimHasNoFee() (gas: 1471313)
+[PASS] testSameTimestampEntryExitCannotCapturePreviouslyAccruedRewards() (gas: 1399717)
+[PASS] testSeparateFarmsNeverShareAssetsRewardsOrSchedules() (gas: 3951020)
+[PASS] testSmallBudgetVestsExactlyWithoutZeroRateLoss() (gas: 1048312)
+[PASS] testZeroStakerEmissionsReturnToReserveAndDoNotRewardNextDepositor() (gas: 1103656)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 2.57s (2.70s CPU time)
+
+Ran 1 test for test/Invariants.t.sol:BLOOMInvariants
+[PASS]
+BLOOMInvariants invariants:
+[PASS] invariantPrincipalConservationAndTreasuryIsolation
+[PASS] invariantRewardConservationAndCoverage
+[PASS] invariantSharesAndEmptyPoolIsolation
+ BLOOMInvariants invariants (runs: 128, calls: 8192, reverts: 0)
+
+╭-------------+------------+-------+---------+----------╮
+| Contract    | Selector   | Calls | Reverts | Discards |
++=======================================================+
+| FarmHandler | advance    | 814   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | checkpoint | 786   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | claim      | 796   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | deposit    | 812   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | donate     | 800   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | epoch      | 816   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | fund       | 822   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | pause      | 788   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | sweep      | 904   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | withdraw   | 854   | 0       | 0        |
+╰-------------+------------+-------+---------+----------╯
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 7.20s (7.19s CPU time)
+
+Ran 1 test for test/Invariants.t.sol:SIMDInvariants
+[PASS]
+SIMDInvariants invariants:
+[PASS] invariantPrincipalConservationAndTreasuryIsolation
+[PASS] invariantRewardConservationAndCoverage
+[PASS] invariantSharesAndEmptyPoolIsolation
+ SIMDInvariants invariants (runs: 128, calls: 8192, reverts: 0)
+
+╭-------------+------------+-------+---------+----------╮
+| Contract    | Selector   | Calls | Reverts | Discards |
++=======================================================+
+| FarmHandler | advance    | 814   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | checkpoint | 786   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | claim      | 796   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | deposit    | 812   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | donate     | 800   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | epoch      | 816   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | fund       | 822   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | pause      | 788   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | sweep      | 904   | 0       | 0        |
+|-------------+------------+-------+---------+----------|
+| FarmHandler | withdraw   | 854   | 0       | 0        |
+╰-------------+------------+-------+---------+----------╯
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 7.71s (7.70s CPU time)
+
+Ran 16 tests for test/Accounting.t.sol:AccountingTest
+[PASS] testDepositSlippageZeroSharesAndRoundingDust() (gas: 1178896)
+[PASS] testDonationsBeforeFirstDepositAndAfterEmptyRemainIsolated() (gas: 1083512)
+[PASS] testDonationsDoNotInflateSharesOrBecomeRewards() (gas: 805066)
+[PASS] testFeeSnipingIsPossibleUnderImmediateEligibility() (gas: 920049)
+[PASS] testFuzzFeeConservation(uint128,uint128,uint128) (runs: 512, μ: 839075, ~: 841366)
+[PASS] testFuzzFiveToOneThousandUsers(uint16) (runs: 512, μ: 104051412, ~: 52270187)
+[PASS] testImmediateSingleDepositorFullWithdrawal() (gas: 589553)
+[PASS] testLastDepositorDoesNotInheritPriorRoundingOrRewards() (gas: 960304)
+[PASS] testMinimumsAndWithdrawBounds() (gas: 506283)
+[PASS] testMultiWalletSplittingMatchesIntentionalPartialWithdrawalBenefit() (gas: 937927)
+[PASS] testPartialWithdrawerIntentionallyBenefits() (gas: 716375)
+[PASS] testRedistributionAndFullCompoundedPositionFee() (gas: 961086)
+[PASS] testRepeatedPartialWithdrawalsRetainTheModelBRecaptureBenefit() (gas: 4596832)
+[PASS] testSharesAreNonTransferableAndNoAllowanceExists() (gas: 386262)
+[PASS] testSixDecimalUnderlyingStillHas18DecimalShares() (gas: 1486873)
+[PASS] testTinyWithdrawalsCannotAvoidFee() (gas: 13017533)
+Suite result: ok. 16 passed; 0 failed; 0 skipped; finished in 51.47s (51.49s CPU time)
+
+Ran 8 test suites in 51.47s (69.04s CPU time): 74 tests passed, 0 failed, 0 skipped (74 total tests)
